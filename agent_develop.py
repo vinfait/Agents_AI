@@ -40,7 +40,7 @@ def herramienta_python(codigo: str) -> str:
     """Útil para ejecutar código Python y verificar si funciona. Devuelve la salida de consola."""
     return PythonREPLTool().run(codigo)
 
-@tool("Escritor_Archivos")
+@tool("escritor_archivos")
 def herramienta_escribir_archivo(ruta_archivo: str, contenido: str) -> str:
     """
     Útil para crear un archivo nuevo o sobrescribir uno existente con código generado.
@@ -61,7 +61,7 @@ def herramienta_escribir_archivo(ruta_archivo: str, contenido: str) -> str:
     except Exception as e:
         return f"Error al intentar guardar el archivo: {e}"
 
-@tool("Lector_Archivos")
+@tool("lector_archivos")
 def herramienta_leer_archivo(ruta_archivo: str) -> str:
     """Útil para leer el contenido de un archivo existente. Debes pasar la ruta del archivo."""
     try:
@@ -70,28 +70,113 @@ def herramienta_leer_archivo(ruta_archivo: str) -> str:
     except Exception as e:
         return f"Error al intentar leer el archivo: {e}"
 
-mis_herramientas = [herramienta_busqueda, herramienta_python, herramienta_escribir_archivo, herramienta_leer_archivo]
+@tool("ejecutor_terminal")
+def herramienta_terminal(comando: str) -> str:
+    """Útil para ejecutar comandos en la terminal (ej. pip install, git, docker, ls). Devuelve la salida del comando."""
+    try:
+        import subprocess
+        resultado = subprocess.run(comando, shell=True, capture_output=True, text=True, timeout=120)
+        salida = resultado.stdout if resultado.stdout else ""
+        error = resultado.stderr if resultado.stderr else ""
+        if resultado.returncode == 0:
+            return f"Comando ejecutado con éxito:\n{salida}"
+        else:
+            return f"Error al ejecutar el comando (Código {resultado.returncode}):\n{error}\n{salida}"
+    except Exception as e:
+        return f"Excepción al intentar ejecutar: {e}"
 
-# 3. Creamos los Agentes
+@tool("Listador_Carpetas")
+def herramienta_listar(ruta_directorio: str) -> str:
+    """Útil para ver qué archivos y carpetas existen en un directorio. Pasa la ruta (ej. '.' para la actual)."""
+    try:
+        import os
+        archivos = os.listdir(ruta_directorio)
+        return f"Contenido de '{ruta_directorio}':\n" + "\n".join(archivos)
+    except Exception as e:
+        return f"Error al leer la carpeta: {e}"
 
-# Agente: El Programador (El Ejecutor)
+@tool("Reemplazar_En_Archivo")
+def herramienta_reemplazar(ruta_archivo: str, texto_antiguo: str, texto_nuevo: str) -> str:
+    """Útil para cambiar un bloque específico de código sin reescribir todo el archivo. Pasa la ruta, el texto a buscar y el nuevo texto."""
+    try:
+        import os
+        if not os.path.exists(ruta_archivo):
+            return f"El archivo {ruta_archivo} no existe."
+            
+        with open(ruta_archivo, 'r', encoding='utf-8') as f:
+            contenido = f.read()
+            
+        if texto_antiguo not in contenido:
+            return "No se encontró el 'texto_antiguo' en el archivo. Asegúrate de que coincida exactamente (¡cuidado con espacios y saltos de línea!)."
+            
+        nuevo_contenido = contenido.replace(texto_antiguo, texto_nuevo, 1) # Reemplaza la primera ocurrencia
+        
+        with open(ruta_archivo, 'w', encoding='utf-8') as f:
+            f.write(nuevo_contenido)
+            
+        return f"Archivo {ruta_archivo} modificado correctamente."
+    except Exception as e:
+        return f"Error al reemplazar texto: {e}"
+
+@tool("Lector_Paginas_Web")
+def herramienta_web(url: str) -> str:
+    """Útil para leer el contenido de texto de una página web o documentación online."""
+    try:
+        import urllib.request
+        import re
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=10) as response:
+            html = response.read().decode('utf-8', errors='ignore')
+            # Extraer texto básico sin etiquetas HTML
+            texto = re.sub(r'<style.*?</style>', '', html, flags=re.DOTALL | re.IGNORECASE)
+            texto = re.sub(r'<script.*?</script>', '', texto, flags=re.DOTALL | re.IGNORECASE)
+            texto = re.sub(r'<[^>]+>', ' ', texto)
+            texto = re.sub(r'\s+', ' ', texto).strip()
+            return texto[:15000] # Limitar tamaño para no saturar memoria
+    except Exception as e:
+        return f"Error al leer la web: {e}"
+
+@tool("Preguntar_Usuario")
+def herramienta_preguntar(pregunta: str) -> str:
+    """Útil para preguntarle al usuario humano cuando tienes una duda importante, necesitas permisos o no sabes cómo continuar."""
+    print(f"\n🙋‍♂️ [Pregunta del Agente]: {pregunta}")
+    # Limpiamos los saltos de línea del print para que el usuario responda abajo
+    sys.stdout.flush()
+    respuesta = input("Tú (Respuesta al Agente): ")
+    print("🤖 Retomando ejecución...")
+    return respuesta
+
+mis_herramientas = [
+    herramienta_escribir_archivo, 
+    herramienta_leer_archivo,
+    herramienta_terminal
+]
+
+# ==========================================
+# 3. CREACIÓN DEL AGENTE CENTRAL
+# ==========================================
+# Aquí definimos la "personalidad" y el rol de nuestro asistente.
+# Al usar un modelo local de 7B, un solo agente "Todoterreno" 
+# es más estable que un sistema de 3 agentes debatiendo.
+llm_model = 'ollama/qwen2.5-coder:7b'
+
+# Agente: El Programador (El Todoterreno)
 programador = Agent(
-    role='Ingeniero de Software Experto',
-    goal='Crear, leer, modificar, testear y corregir código Python, guardando siempre el resultado final en un archivo.',
-    backstory='''Eres un desarrollador de software full-stack. Tu especialidad es ejecutar tareas de programación de manera impecable.
-    Tu proceso según la tarea asignada:
-    - Escribe el código Python asegurándote de añadirle comentarios explicativos.
-    - Testea tu código usando la herramienta `Python_REPL` para verificar que funciona correctamente o para corregir errores.
-    - Una vez testeado y validado, guárdalo usando la herramienta `Escritor_Archivos`.
-    IMPORTANTE: Si decides usar una herramienta, DEBES seguir exactamente este formato en tu respuesta:
-    Thought: (Tu razonamiento de qué vas a hacer)
-    Action: Escritor_Archivos
-    Action Input: {"ruta_archivo": "nombre_del_archivo.py", "contenido": "codigo_aqui"}
-    ¡NUNCA devuelvas solo un JSON suelto sin las palabras Thought y Action!''',
+    role='Ingeniero de Software Senior',
+    goal='Crear código, guardarlo en archivos y ejecutar comandos en la terminal para testear.',
+    backstory='''Eres un desarrollador meticuloso. Tu proceso es sencillo y estricto:
+    1. Si necesitas crear un proyecto (ej. Django, Node), usa `ejecutor_terminal` para lanzar comandos como `django-admin startproject` o `npm init`.
+    2. Usa `escritor_archivos` para crear archivos de código nuevos.
+    3. Si usas una herramienta, DEBES SIEMPRE respetar este formato exacto SIN ESPACIOS AL INICIO DE LA LÍNEA:
+Thought: [tu pensamiento]
+Action: [nombre de la herramienta]
+Action Input: {"parametro": "valor"}
+    ¡NO ESCRIBAS NINGÚN TEXTO DESPUÉS DE 'Action Input:'! ¡Para de escribir inmediatamente!
+    ¡NUNCA DEVUELVAS UN ARRAY JSON NI UNA LISTA DE FUNCIONES! ¡USA SIEMPRE EL FORMATO THOUGHT/ACTION!''',
     tools=mis_herramientas,
     verbose=False,
-    llm='ollama/qwen2.5-coder:7b', # Usamos la versión 7B para máxima calidad de código
-    allow_delegation=False, # No delega, solo ejecuta
+    llm=llm_model,
+    allow_delegation=False,
     cache=True
 )
 
@@ -107,7 +192,7 @@ def spinner(stop_event, start_time):
             if stop_event.is_set():
                 break
             # Escribe el mensaje y el spinner, \r vuelve al inicio de la línea
-            sys.stdout.write(f'\r   [2/3] 👩‍💻  Programador ejecutando las tareas... [{formatted_time}] {char}')
+            sys.stdout.write(f'\r   [2/3] 👩‍💻  Programador trabajando... [{formatted_time}] {char}')
             sys.stdout.flush()
             time.sleep(0.1)
     # Limpia la línea del spinner antes de que se imprima el resultado final
@@ -124,7 +209,13 @@ print("🤖 EQUIPO DE AGENTES INICIADO (Manager y Programador)")
 print("Escribe 'salir' para terminar el chat.")
 print("==================================================\n")
 
-# 4. Bucle del Chat Continúo
+# ==========================================
+# 4. BUCLE PRINCIPAL DEL CHAT
+# ==========================================
+# Este bucle mantiene el programa vivo, esperando órdenes del usuario,
+# procesándolas y guardando la conversación en la "memoria".
+historial_conversacion = ""
+
 while True:
     orden_usuario = input("\n👤 Tú: ")
     
@@ -141,12 +232,18 @@ while True:
     print("   [1/3] 🕵️‍♂️  Manager analizando y creando el plan...")
     # El equipo ahora trabaja en segundo plano. El cursor parpadeará mientras procesan.
     
+    historial_conversacion += f"\n- Usuario: {orden_usuario}"
+    
     # Creamos la tarea dinámica con lo que has escrito
     tarea_principal = Task(
-        description=f"""Petición del usuario: '{orden_usuario}'.
-        Debes escribir el código Python necesario para cumplir esta petición, añadirle comentarios explicativos, TESTEARLO usando la herramienta 'Python_REPL' para asegurarte de que funciona y, finalmente, usar la herramienta 'Escritor_Archivos' para guardarlo en tu ordenador.""",
-        expected_output="""La ruta absoluta del archivo guardado tras usar Escritor_Archivos. Ejemplo: 'C:\\Users\\...\\script.py'""", 
-        agent=programador # Directamente al programador
+        description=f"""HISTORIAL DE CONTEXTO (Lo que hemos hablado hasta ahora):
+        {historial_conversacion}
+
+        PETICIÓN ACTUAL DEL USUARIO: '{orden_usuario}'.
+        Debes usar todas tus herramientas para cumplir la petición: explora, escribe, testea y finalmente usa 'Escritor_Archivos' para guardarlo.
+        Si son múltiples archivos, usa la herramienta múltiples veces.""",
+        expected_output="""La ruta absoluta de los archivos guardados o modificados tras usar Escritor_Archivos.""", 
+        agent=programador
     )
     
     equipo = Crew(
@@ -154,7 +251,7 @@ while True:
         tasks=[tarea_principal],
         process=Process.sequential,
         verbose=False,
-        max_iter=5)
+        max_iter=25)
 
     try:
         stop_spinner = threading.Event()
@@ -164,34 +261,48 @@ while True:
 
         try:
             spinner_thread.start()
-            # Ejecutamos el equipo (esta es la parte que bloquea y tarda)
             resultado = equipo.kickoff()
         finally:
-            # Nos aseguramos de que el spinner se detenga, incluso si hay un error
             stop_spinner.set()
             spinner_thread.join()
+            
+        print("\n   [3/3] ✅ ¡Proceso completado!")
         
-        print("   [3/3] ✅ ¡Proceso completado!")
-        
-        # Parche de seguridad: si el modelo pequeño devuelve el código en el texto en lugar de usar la herramienta
+        # ==========================================
+        # 5. SISTEMA DE SEGURIDAD (FALLBACKS)
+        # ==========================================
+        # Si el modelo LLM se equivoca y devuelve el código como texto plano
+        # en lugar de usar la herramienta Escritor_Archivos correctamente, 
+        # este bloque atrapa el código y crea el archivo manualmente.
         resultado_texto = str(resultado)
         try:
             import json, re
             
-            # Buscar bloque de código en la respuesta final (con o sin \r)
+            # Intento 1: Buscar si el agente escupió un bloque de markdown ```python ... ```
             code_match = re.search(r'```(?:python)?\s*([\s\S]*?)```', resultado_texto)
             
-            # También intentamos extraer argumentos JSON si el agente devolvió un JSON roto
+            # ¡PARCHE DE EMERGENCIA PARA LA TERMINAL!
+            # Extraemos cualquier comando que haya intentado usar con regex para evitar errores de parseo JSON
+            comandos_hallados = re.findall(r'"comando"\s*:\s*"([^"]+)"', resultado_texto)
+            for cmd in comandos_hallados:
+                print(f"\n   [!] Parche de Emergencia Activado: Ejecutando comando -> {cmd}")
+                import os
+                os.system(cmd)
+                print("   [!] Comando ejecutado con éxito por el sistema de seguridad.")
+                
+            # Intentamos extraer ruta_archivo y contenido de la misma forma robusta
             json_args = {}
             if "{" in resultado_texto and "}" in resultado_texto:
-                json_str = resultado_texto[resultado_texto.find("{"):resultado_texto.rfind("}")+1]
-                try:
-                    data = json.loads(json_str)
-                    json_args = data.get("arguments", data)
-                    if isinstance(json_args, str):
-                        json_args = json.loads(json_args)
-                except:
-                    pass
+                # Buscamos el primer bloque JSON no-codicioso para evitar que se trague varios JSONs juntos
+                json_match = re.search(r'(\{.*?\})', resultado_texto, re.DOTALL)
+                if json_match:
+                    try:
+                        data = json.loads(json_match.group(1))
+                        json_args = data.get("arguments", data)
+                        if isinstance(json_args, str):
+                            json_args = json.loads(json_args)
+                    except:
+                        pass
             
             contenido_final = None
             ruta_final = None
@@ -213,16 +324,37 @@ while True:
             else:
                 # Fallback final: cortar strings manualmente
                 idx = resultado_texto.find('"contenido"')
+                if idx == -1:
+                    idx = resultado_texto.find('"codigo"')
+                    
                 if idx != -1:
                     bloque = resultado_texto[idx:].split(':', 1)[1].strip()
-                    if bloque.endswith('}'):
-                        bloque = bloque[:-1].strip()
-                    if bloque.startswith('"""') and bloque.endswith('"""'):
-                        bloque = bloque[3:-3]
-                    elif bloque.startswith("'''") and bloque.endswith("'''"):
-                        bloque = bloque[3:-3]
-                    elif bloque.startswith('"') and bloque.endswith('"'):
-                        bloque = bloque[1:-1].replace('\\n', '\n').replace('\\"', '"').replace('\\\\', '\\')
+                    
+                    # Intentar extraer solo lo que hay dentro de comillas triples
+                    if bloque.startswith('"""'):
+                        end_idx = bloque.find('"""', 3)
+                        if end_idx != -1:
+                            bloque = bloque[3:end_idx]
+                        else:
+                            bloque = bloque[3:] # Si se olvidó cerrarlo, cogemos el resto
+                    elif bloque.startswith("'''"):
+                        end_idx = bloque.find("'''", 3)
+                        if end_idx != -1:
+                            bloque = bloque[3:end_idx]
+                        else:
+                            bloque = bloque[3:]
+                    elif bloque.startswith('"'):
+                        end_idx = bloque.find('"', 1)
+                        if end_idx != -1:
+                            bloque = bloque[1:end_idx].replace('\\n', '\n').replace('\\"', '"').replace('\\\\', '\\')
+                        else:
+                            bloque = bloque[1:].replace('\\n', '\n')
+                    else:
+                        # Si no empieza por comillas, cortamos en la llave de cierre si la hay
+                        end_idx = bloque.rfind('}')
+                        if end_idx != -1:
+                            bloque = bloque[:end_idx].strip()
+                            
                     contenido_final = bloque.strip()
                     
                     ruta_match = re.search(r'"ruta_archivo"\s*:\s*["\'](.*?)["\']', resultado_texto)
@@ -233,6 +365,12 @@ while True:
                         ruta_final = ruta_match.group(1) if ruta_match else "script_generado.py"
             
             if contenido_final and ruta_final:
+                # Crear la carpeta si no existe
+                import os
+                directorio = os.path.dirname(ruta_final)
+                if directorio:
+                    os.makedirs(directorio, exist_ok=True)
+                    
                 # Limpiar etiquetas residuales si existen
                 if contenido_final.startswith("```python"):
                     contenido_final = contenido_final[9:].strip()
@@ -253,6 +391,9 @@ while True:
             
         print("\n--- RESPUESTA DEL EQUIPO ---")
         print(resultado_texto)
+        
+        # Guardamos la respuesta del agente en el historial para que lo recuerde la próxima vez
+        historial_conversacion += f"\n- Agente: {resultado_texto}"
             
     except Exception as e:
         # Si el modelo local agota sus intentos o se satura, te avisa sin romper el bucle
