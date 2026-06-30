@@ -1,0 +1,18 @@
+services:
+  ollama:
+    image: ollama/ollama:rocm        # imagen con soporte AMD ROCm/Vulkan
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    devices:
+      - /dev/dri:/dev/dri            # pasa la iGPU AMD al contenedor
+    group_add:
+      - video                        # permisos para acceder a /dev/dri
+    environment:
+      - HSA_OVERRIDE_GFX_VERSION=9.0 # fuerza compatibilidad Renoir con ROCm (gfx900)
+
+volumes:
+  ollama_data:
